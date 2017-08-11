@@ -1,0 +1,45 @@
+# 根据新的group求得特征,平均值、方差、最大值、最小值、中位数
+def group_character(data):
+    columns_name = data.columns
+    new_label = pd.DataFrame(data['label'].groupby(data['new_group']).head(1))
+    new_label = new_label.reset_index( drop=True)
+    old_group = pd.DataFrame(data['group'].groupby(data['new_group']).head(1))
+    old_group = old_group.reset_index( drop=True)
+
+    new_data = pd.concat([new_label,old_group],axis = 1)
+    
+    for i in range(len(data.columns)-3):
+        mean_name = columns_name[i]+'_mean'
+        med_name = columns_name[i]+'_med'
+        max_name = columns_name[i]+'_max'
+        min_name = columns_name[i]+'_min'
+        std_name = columns_name[i]+'_std'
+
+        t_mean = pd.DataFrame(data[columns_name[i]].groupby(data['new_group']).mean().rename(mean_name)).reset_index( drop=True)
+        t_median = pd.DataFrame(data[columns_name[i]].groupby(data['new_group']).median().rename(med_name)).reset_index( drop=True)
+        t_max = pd.DataFrame(data[columns_name[i]].groupby(data['new_group']).max().rename(max_name)).reset_index( drop=True)
+        t_min = pd.DataFrame(data[columns_name[i]].groupby(data['new_group']).min().rename(min_name)).reset_index( drop=True)
+        t_std = pd.DataFrame(data[columns_name[i]].groupby(data['new_group']).std().rename(std_name)).reset_index( drop=True)
+
+        new_data = pd.concat([new_data,t_mean,t_median,t_max,t_min,t_std],axis = 1)
+    return new_data
+    
+   
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn import cross_validation
+import math
+import time
+
+# 读取分组的数据
+train_data = pd.read_csv('D:\\Files\\competion\\divide_group_10\\data_proprecessing\\15_10group.csv')
+test_data = pd.read_csv('D:\\Files\\competion\\divide_group_10\\data_proprecessing\\21_10group.csv')
+
+# 计算group的特征
+train_data1 = group_character(train_data)
+test_data1 = group_character(test_data)
+
+# 保存.csv格式
+train_data1.to_csv('15_5gc.csv',index=False)
+test_data1.to_csv('21_5gc.csv',index=False)
