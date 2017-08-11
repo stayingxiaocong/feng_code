@@ -1,0 +1,65 @@
+# 添加label
+def add_label(data,d_n,d_f):
+    data_time = data['time']
+    #转换normal和failure的时间格式
+    d_n_start_time = [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in d_n['startTime'] ]
+    d_n_end_time= [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in d_n['endTime'] ]
+    d_f_start_time = [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in d_f['startTime'] ]
+    d_f_end_time = [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in d_f['endTime'] ]
+    
+    label_list=[]
+    t1 = 0
+    t2 = 0
+    l1 = 0
+    l2 = 0
+    for i in range(0,len(data)):
+        if ((data_time[i] >= d_n_start_time[t1]) &
+        (data_time[i] <= d_n_end_time[t1])):
+            label_list.append(0)
+            l1 = 1
+        elif ((data_time[i] >= d_f_start_time[t2]) &
+        (data_time[i] <= d_f_end_time[t2])):
+            label_list.append(1)
+            l2 = 2
+        else:
+            if l1 == 1: 
+                t1 = t1 +1 
+                if t1 == len(d_n_end_time):
+                    t1 = len(d_n_end_time)-1
+            if l2 == 2:
+                t2 = t2 + 1
+                if t2 == len(d_f_end_time):
+                    t1 = len(d_f_end_time)-1
+            l1 = 0 
+            l2 = 0
+            label_list.append(2)
+            
+    label=pd.Series(label_list)
+    data['label'] = label
+    return data
+
+
+# 数据预处理，去除标签为2的无效数据
+import numpy as np
+import pandas as pd
+import math
+import time
+
+# 读取数据
+train_data = pd.read_csv('D:\\Files\\competion\\raw_data\\15\\15_data.csv')
+test_data = pd.read_csv('D:\\Files\\competion\\raw_data\\21\\21_data.csv')
+# 转换时间戳
+train_data['time'] = [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in train_data['time'] ]
+test_data['time'] = [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in test_data['time'] ]
+# 读取正常、故障和无效时段
+dtrain_n = pd.read_csv('D:\\Files\\competion\\raw_data\\15\\15_normalInfo.csv') 
+dtrain_f = pd.read_csv('D:\\Files\\competion\\raw_data\\15\\15_failureInfo.csv')
+dtest_n = pd.read_csv('D:\\Files\\competion\\raw_data\\21\\21_normalInfo.csv') 
+dtest_f = pd.read_csv('D:\\Files\\competion\\raw_data\\21\\21_failureInfo.csv')
+# 添加标签
+train_data = add_label(train_data,dtrain_n,dtrain_f)
+test_data = add_label(test_data,dtest_n,dtest_f)
+
+# 保存为.csv文件
+train_data.to_csv('train_rawlabel.csv',index = False)
+test_data.to_csv('test_rawlabel.csv',index = False)
