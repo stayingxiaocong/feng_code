@@ -1,0 +1,73 @@
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+
+# 读取数据
+train_data = pd.read_csv('D:\\Files\\competion\\svM\\data\\train_flabel.csv')
+test_data = pd.read_csv('D:\\Files\\competion\\svM\\data\\test_flabel.csv')
+
+train_label = train_data['label']
+test_label = test_data['label']
+# 保存group信息
+train_group = train_data['group']
+test_group = test_data['group']
+
+train_data.drop('group',axis=1, inplace=True)
+train_data.drop('label',axis=1, inplace=True)
+test_data.drop('label',axis=1, inplace=True)
+test_data.drop('group',axis=1, inplace=True)
+
+# 打分函数
+#评估模型分数函数
+def model_roc_score(cllf, test_data , test_label):
+    pre_label = cllf.predict(test_data)
+    N_fault = 0
+    FP = 0
+    TN = 0
+    N_normal = 0
+    FN = 0
+    for i in range(len(test_label)):
+        if test_label[i] == 1:  #实际标签为1
+            N_fault = N_fault + 1
+            if pre_label[i] == 0: # 错分为0
+                FP = FP + 1
+            else:
+                TN = TN+1
+        else: #实际标签为0
+            N_normal = N_normal + 1
+            if pre_label[i] == 1: #错分为1
+                FN = FN + 1
+    score = (1-0.5*(FN/N_normal)-0.5*(FP/N_fault))*100
+    return score,TN,FN
+    
+  # Classify using RandomForestClassifier
+weight_list = []
+for j in range(len(test_label)):
+    if test_label[j] == 1:
+        weight_list.append(1)
+    if test_label[j] == 0:
+        weight_list.append(1)
+clf = RandomForestClassifier(
+                            n_estimators = 400,
+                            max_depth = 3,
+                            min_samples_leaf = 11,
+                            min_samples_split = 4,
+                            max_features = 14,
+                            class_weight = 'balanced').fit(test_data,test_label,weight_list)
+                   
+ #对test进行预测
+score,TN,FN = model_roc_score(clf, train_data , train_label)
+score,TN,FN
+
+# 特征重要性排名
+importance_list = clf.feature_importances_
+name_list = train_data.columns.values
+impor_dict = {}
+for i in range(len(importance_list)):
+    impor_dict[i] = importance_list[i]
+
+impor_dict_list = sorted(impor_dict.items(), key=lambda d: d[1], reverse=True)
+
+for i in range(len(impor_dict_list)):
+    print ("fea" + str(impor_dict_list[i][0]) + " " + str(name_list[impor_dict_list[i][0]]) + " : " + str(
+        impor_dict_list[i][1]))
