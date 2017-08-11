@@ -1,0 +1,108 @@
+# 将一个group分成5份
+# 计算新特征
+def generate_character(data):
+    # 计算风速速度的次方
+    data['wind_speed_3'] = [(lambda x : math.pow(x,3))(x) for x in data['wind_speed']]
+    # 计算对风角的平方
+    data['wind_direction_cos'] = [(lambda x : math.cos(x*(math.pi)/180))(x) for x in data['wind_direction']]
+    data['wind_direction_cos_2'] = [(lambda x : math.pow(x,2))(x) for x in data['wind_direction_cos']]
+    # 计算偏航位置特征
+    data['yaw_ch1'] = [(lambda x : math.exp(-abs(x)))(x) for x in data['yaw_position']]
+    # 计算空气的密度
+    data['air_density'] = data['power']/(data['wind_speed_3']*data['wind_direction_cos_2']*data['yaw_ch1'])
+    # 温差特征
+    #环境温度减
+    data['e_p1_ng_t'] = data['environment_tmp'] - data['pitch1_ng5_tmp']
+    data['e_p2_m_t'] = data['environment_tmp'] - data['pitch2_moto_tmp']
+    #机舱温度减
+    data['i_p1_ng_t'] = data['int_tmp'] - data['pitch1_ng5_tmp']
+    data['i_p2_m_t'] = train_data['int_tmp'] - data['pitch2_moto_tmp']
+    #机舱温度和环境温度的差
+    data['e_i_t'] = data['environment_tmp'] - data['int_tmp']
+    return data
+# 删除一些RF评分排名低的特征列
+def drop_character(data):
+    data.drop(['wind_direction_cos_2','wind_direction_cos','pitch1_ng5_DC','pitch2_ng5_DC',
+               'pitch3_ng5_DC','acc_y','yaw_speed','wind_direction_mean','pitch3_ng5_tmp',
+              'acc_x','pitch2_speed','wind_direction','pitch1_speed','pitch3_speed'],axis=1, inplace=True)
+    return data
+# 将一个group分成5份
+def divide_group(data):
+    data = data.reset_index(drop=True)
+    old_group = data['group']
+    new_group = []
+    group_start = 0
+    new_group_index = 0
+    col_len = len(data)
+    for i in range(col_len):
+        if i == col_len-1:  # 最后一个样本
+            for j in range(0,int((i-group_start)/5)):
+                    new_group.append(new_group_index)
+            new_group_index += 1
+            for j in range(int((i-group_start)/5),int((i-group_start)/5*2)):
+                new_group.append(new_group_index)
+            new_group_index += 1
+            for j in range(int((i-group_start)/5*2),int((i-group_start)/5*3)):
+                new_group.append(new_group_index)
+            new_group_index += 1
+            for j in range(int((i-group_start)/5*3),int((i-group_start)/5*4)):
+                new_group.append(new_group_index)
+            new_group_index += 1
+            for j in range(int((i-group_start)/5*4),i-group_start+1):
+                new_group.append(new_group_index)
+            new_group_index += 1
+        else: 
+            if old_group[i] != old_group[i+1]:  # 一个group最后样本
+                if (i-group_start)> 20:
+                    for j in range(0,int((i-group_start)/5)):
+                        new_group.append(new_group_index)
+                    new_group_index += 1
+                    for j in range(int((i-group_start)/5),int((i-group_start)/5*2)):
+                        new_group.append(new_group_index)
+                    new_group_index += 1
+                    for j in range(int((i-group_start)/5*2),int((i-group_start)/5*3)):
+                        new_group.append(new_group_index)
+                    new_group_index += 1
+                    for j in range(int((i-group_start)/5*3),int((i-group_start)/5*4)):
+                        new_group.append(new_group_index)
+                    new_group_index += 1
+                    for j in range(int((i-group_start)/5*4),i-group_start+1):
+                        new_group.append(new_group_index)
+                    new_group_index += 1
+                else:
+                    for j in range(0,(i-group_start)+1):
+                        new_group.append(new_group_index)
+                    new_group_index += 1
+                group_start = i+1
+    data['new_group'] = new_group
+    return data 
+    
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn import cross_validation
+import math
+import time
+
+# 读取去掉标签为2的数据集
+train_data = pd.read_csv('D:\\Files\\competion\\data_set\\drop_2\\15_01label.csv')
+test_data = pd.read_csv('D:\\Files\\competion\\data_set\\drop_2\\21_01label.csv')
+train_data.drop(['time'],axis=1, inplace=True)
+test_data.drop(['time'],axis=1, inplace=True)
+
+# 添加组合特征
+train_data1 = generate_character(train_data)
+test_data1 = generate_character(test_data)
+
+# 删除一些不必要的特征列
+train_data2 = drop_character(train_data1)
+test_data2 = drop_character(test_data1)
+
+# 一个group划分成5份
+train_data3 = divide_group(train_data2)
+test_data3 = divide_group(test_data2)
+
+# 保存数据
+train_data3.to_csv('15_10group.csv',index=False)
+test_data3.to_csv('21_10group.csv',index=False)
+
