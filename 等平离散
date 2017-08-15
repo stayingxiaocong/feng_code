@@ -1,0 +1,27 @@
+ k=50
+    w = [1.0*i/k for i in range(k+1)]  
+    w_50 = train.describe(percentiles = w)[4:4+k+1] #使用describe函数自动计算分位数  
+
+    w_50.iloc[0,:] = -100000000000000
+    w_50.iloc[-1,:] = 100000000000000
+
+#     drop_number = []
+    train_dis = pd.DataFrame(train['label'],columns=['label'])
+    for i in range(1,len(columns_name_list)):
+        try:
+    #             d2 = pd.cut(train.iloc[:,i], w_50.iloc[:,i], labels = range(k)) 
+    #             columns_name = train.columns[i]
+    #             d2_dd = pd.DataFrame(list(d2),columns=[columns_name])
+            d2 = pd.cut(train[columns_name_list[i]], w_50[columns_name_list[i]], labels = range(k)) 
+            d2_dd = pd.DataFrame(list(d2),columns=[columns_name_list[i]])
+            train_dis = pd.concat([train_dis,d2_dd],axis=1)
+            
+            
+            
+            
+            
+            
+            
+            
+            
+d2 = pd.cut(train.iloc[:,i], w_50.iloc[:,i], labels = range(k)) 
