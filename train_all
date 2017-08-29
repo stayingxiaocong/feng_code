@@ -1,0 +1,530 @@
+#所有的对训练集的处理都放在这个文件里面，前面是各种mian函数，后面是子函数
+
+import numpy as np
+import pandas as pd
+import time
+import math
+from tqdm import *
+
+#某个版本的main函数，把一个group分成五份，然后求统计值
+def mian_1():
+	data_15 = pd.read_csv('D:\\iot\\competition\\ice\\train\\15\\15_data_train.csv')
+	data_15.drop(['pitch2_angle','pitch3_angle','pitch1_moto_tmp','pitch3_moto_tmp','pitch2_speed','pitch3_speed'],axis=1, inplace=True)
+	d_f = pd.read_csv('D:\\iot\\competition\\ice\\train\\15\\15_failureInfo.csv')
+	d_n = pd.read_csv('D:\\iot\\competition\\ice\\train\\15\\15_normalInfo.csv')
+	print("add_label...")
+	train_data_15 = add_label(data_15,d_n,d_f)
+	print("add_group...")
+	train_data_15 = add_group(train_data_15)
+
+	#新的label放在new_label里面
+	train_data_dl_15 = deal_label_2(train_data_15)
+
+	#构造特征，先做一些加减的运算，然后再求平均值之类的。
+	train_data_dl_15 = add_columns(train_data_dl_15)
+
+	#列重排序
+	columns_list = list(train_data_dl_15)
+	columns_list.remove('new_label')
+	columns_list.remove('label')
+	columns_list.remove('group')
+	columns_list.remove('new_group')
+
+	columns_list.append('group')
+	columns_list.append('new_label')
+	columns_list.append('label')
+	columns_list.append('new_group')
+
+	new_train_data_15 = train_data_dl_15.loc[:,columns_list]
+
+	new_train_data_15.drop(['pitch1_angle','wind_direction','wind_direction_mean',
+						'yaw_position','yaw_speed','acc_x','acc_y',
+						'pitch1_ng5_DC','pitch2_ng5_DC','pitch3_ng5_DC',
+						'pitch2_ng5_tmp','pitch3_ng5_tmp'],axis=1, inplace=True)
+
+	#删除标签为2的样本
+	new_train_data_15 = new_train_data_15.loc[new_train_data_15['new_label'] != 2]
+	
+	#计算统计特性
+	print("cal_statist...")
+	new_train_data_15_stat = cal_statist(new_train_data_15)
+	temp_label = new_train_data_15_stat['label']
+	temp_group = new_train_data_15_stat['group']
+	temp_new_label = new_train_data_15_stat['new_label']
+
+	#归一化
+	print("normalization...")
+	new_data_normal_15 = normalization(new_train_data_15_stat)
+	new_data_normal_15['label'] = temp_label
+	new_data_normal_15['group'] = temp_group
+	new_data_normal_15['new_label'] = temp_new_label
+	new_data_normal_15.to_csv('data_15_10_group.csv',index = False)
+	
+	
+	#离散化
+	columns_name_list = new_train_data_15_stat.columns
+	train_dis_15 = dis(new_train_data_15_stat,columns_name_list)
+	train_dis_15.to_csv('data_15_dis.csv',index = False)
+	
+	
+	
+	#对预测集也做相似处理，以下略
+	
+	
+	
+	print("finished！")
+	
+
+
+#/*******************************************************/
+#//滑窗函数
+#
+#//
+#以30的长度滑窗，先把label和group的值滑出来
+def get_label_group(train_data):
+    old_group = train_data['group']
+    old_label = train_data['label']
+    columns_name = list(train_data)
+
+    group_start = 0
+    dealed_column = train_data[columns_name[3]]
+    new_label_list = []
+    new_group_list = []
+
+    for j in tqdm(range(len(train_data)-1)):
+        #找到每个group
+        if old_group[j] != old_group[j+1]:
+
+            if (j-group_start) > 30:
+                #开始计算这个group
+                for index in range(group_start+30,j+1): #确定循环次数
+                    new_label_list.append(old_label[index])
+                    new_group_list.append(old_group[index])
+
+            else:
+                new_label_list.append(old_label[group_start+1])
+                new_group_list.append(old_group[group_start+1])
+
+            group_start = j+1
+        if j == len(train_data)-2:
+            if (j-group_start) > 30:
+                #开始计算这个group
+                for index in range(group_start+30,j+2): #确定循环次数
+
+                    new_label_list.append(old_label[index])
+                    new_group_list.append(old_group[index])
+                    
+
+            else:
+                new_label_list.append(old_label[group_start+1])
+                new_group_list.append(old_group[group_start+1])
+
+            group_start = j+1
+
+
+
+    new_one = pd.DataFrame(new_label_list,columns =['label'])
+    new_group = pd.DataFrame(new_group_list,columns =['group'])
+    new_one = pd.concat([new_one,new_group],axis = 1)
+
+    return new_one
+	
+#然后开始滑各种特征，并且求出统计值。第二个输入参数 new_one 是前面	get_label_group 所得的DataFrame
+def get_feature(train_data,new_one):
+    old_group = train_data['group']
+    old_label = train_data['label']
+    columns_name = list(train_data)
+
+    #mod = lambda x : np.argmax(x.value_counts())
+
+    for i in range(1,len(columns_name)-2):
+        #一列一列的处理
+        group_start = 0
+        dealed_column = train_data[columns_name[i]]
+        new_list_max = []
+        new_list_min = []
+        new_list_std = []
+        new_list_mean = []
+        new_list_med = []
+        new_label_list = []
+
+        for j in tqdm(range(len(train_data)-1)):
+            #找到每个group
+            if old_group[j] != old_group[j+1]:
+
+                if (j-group_start) > 30:
+                    #开始计算这个group
+                    for index in range(group_start+30,j+1): #确定循环次数
+                        temp_list = dealed_column[index-30:index]
+                        new_list_max.append(temp_list.max())
+                        new_list_min.append(temp_list.min())
+                        new_list_std.append(temp_list.std())
+                        #new_list_mod.append(temp_list.apply(mod))
+                        new_list_mean.append(temp_list.mean())
+                        new_list_med.append(temp_list.median())
+                        new_label_list.append(old_label[index])
+
+                else:
+                    temp_list = dealed_column[group_start:j]
+                    new_list_max.append(temp_list.max())
+                    new_list_min.append(temp_list.min())
+                    new_list_std.append(temp_list.std())
+                    #new_list_mod.append(temp_list.apply(mod))
+                    new_list_mean.append(temp_list.mean())
+                    new_list_med.append(temp_list.median())
+                    new_label_list.append(old_label[group_start+1])
+
+                group_start = j+1
+            if j == len(train_data)-2:
+                if (j-group_start) > 30:
+                    #开始计算这个group
+                    for index in range(group_start+30,j+2): #确定循环次数
+                        temp_list = dealed_column[index-30:index]
+                        new_list_max.append(temp_list.max())
+                        new_list_min.append(temp_list.min())
+                        new_list_std.append(temp_list.std())
+                        #new_list_mod.append(temp_list.apply(mod))
+                        new_list_mean.append(temp_list.mean())
+                        new_list_med.append(temp_list.median())
+                        new_label_list.append(old_label[index])
+
+                else:
+                    temp_list = dealed_column[group_start:j+1]
+                    new_list_max.append(temp_list.max())
+                    new_list_min.append(temp_list.min())
+                    new_list_std.append(temp_list.std())
+                    #new_list_mod.append(temp_list.apply(mod))
+                    new_list_mean.append(temp_list.mean())
+                    new_list_med.append(temp_list.median())
+                    new_label_list.append(old_label[group_start+1])
+
+                group_start = j+1
+
+        max_name = columns_name[i]+'_max'
+        min_name = columns_name[i]+'_min'
+        med_name = columns_name[i]+'_med'
+        mean_name = columns_name[i]+'_mean'
+        std_name = columns_name[i]+'_std'
+        mod_name = columns_name[i]+'_mod'
+
+        #new_one = pd.DataFrame(new_label_list,columns =['new_label'])
+        new_max = pd.DataFrame(new_list_max,columns = [max_name])
+        new_min = pd.DataFrame(new_list_min,columns = [min_name])
+        new_med = pd.DataFrame(new_list_med,columns = [med_name])
+        new_mean = pd.DataFrame(new_list_mean,columns = [mean_name])
+        new_std = pd.DataFrame(new_list_std,columns = [std_name])
+        new_mod = pd.DataFrame(new_list_mod,columns = [mod_name])
+
+        new_one = pd.concat([new_one,new_max,new_min,new_med,new_mean,new_std],axis = 1)
+
+    return new_one	
+	
+	
+
+
+#/*******************************************************/
+#//分组函数（把一个group分成k个小组）
+#
+#//
+
+#把一个group分成五份，并且赋新的组号
+def add_group(train_data):
+    
+    old_group = train_data['group']
+    new_group = []
+    group_start = 0
+    new_group_index = 1
+    for i in tqdm(range(len(train_data)-1)):
+        if old_group[i] != old_group[i+1]:
+            if (i-group_start)>20:
+                for j in range(0,int((i-group_start)/5)):
+                    new_group.append(new_group_index)
+                new_group_index += 1
+                for j in range(int((i-group_start)/5),int((i-group_start)/5*2)):
+                    new_group.append(new_group_index)
+                new_group_index += 1
+                for j in range(int((i-group_start)/5*2),int((i-group_start)/5*3)):
+                    new_group.append(new_group_index)
+                new_group_index += 1
+                for j in range(int((i-group_start)/5*3),int((i-group_start)/5*4)):
+                    new_group.append(new_group_index)
+                new_group_index += 1
+                for j in range(int((i-group_start)/5*4),i-group_start+1):
+                    new_group.append(new_group_index)
+                new_group_index += 1
+            else:
+                for j in range(0,(i-group_start)+1):
+                    new_group.append(new_group_index)
+                new_group_index += 1
+            group_start = i+1
+            
+            
+        if i == len(train_data)-2 :
+            for j in range(0,int((i-group_start)/5)):
+                new_group.append(new_group_index)
+            new_group_index += 1
+            
+            for j in range(int((i-group_start)/5),int((i-group_start)/5*2)):
+                new_group.append(new_group_index)
+            new_group_index += 1
+            
+            for j in range(int((i-group_start)/5*2),int((i-group_start)/5*3)):
+                new_group.append(new_group_index)
+            new_group_index += 1
+            
+            for j in range(int((i-group_start)/5*3),int((i-group_start)/5*4)):
+                new_group.append(new_group_index)
+            new_group_index += 1
+            
+            for j in range(int((i-group_start)/5*4),i-group_start+2):
+                new_group.append(new_group_index)
+            new_group_index += 1
+            
+    train_data['new_group'] = new_group
+    return train_data
+
+
+#按照每个新划分的group计算统计值
+def cal_statist(train_data):
+    #mod没有现成的函数可以调用，所以只能自己写函数。求众数
+    mod = lambda x : np.argmax(x.value_counts())
+    columns_name = train_data.columns
+    new_data = pd.DataFrame(train_data['label'].groupby(train_data['new_group']).head(1))
+    new_data = new_data.reset_index( drop=True)
+    old_group = pd.DataFrame(train_data['group'].groupby(train_data['new_group']).head(1))
+    old_group = old_group.reset_index( drop=True)
+    
+    new_label_t = pd.DataFrame(train_data['new_label'].groupby(train_data['new_group']).head(1))
+    new_label_t = new_label_t.reset_index( drop=True)
+    new_data = pd.concat([new_data,old_group,new_label_t],axis = 1)
+    
+    for i in tqdm(range(1,len(train_data.columns)-4)):
+        mean_name = columns_name[i]+'_mean'
+        med_name = columns_name[i]+'_med'
+        max_name = columns_name[i]+'_max'
+        min_name = columns_name[i]+'_min'
+        std_name = columns_name[i]+'_std'
+        mod_name = columns_name[i]+'_mod'
+
+        t_mean = pd.DataFrame(train_data[columns_name[i]].groupby(train_data['new_group']).mean().rename(mean_name)).reset_index( drop=True)
+        t_median = pd.DataFrame(train_data[columns_name[i]].groupby(train_data['new_group']).median().rename(med_name)).reset_index( drop=True)
+        t_max = pd.DataFrame(train_data[columns_name[i]].groupby(train_data['new_group']).max().rename(max_name)).reset_index( drop=True)
+        t_min = pd.DataFrame(train_data[columns_name[i]].groupby(train_data['new_group']).min().rename(min_name)).reset_index( drop=True)
+        t_std = pd.DataFrame(train_data[columns_name[i]].groupby(train_data['new_group']).std().rename(std_name)).reset_index( drop=True)
+        t_mod = pd.DataFrame(train_data[columns_name[i]].groupby(train_data['new_group']).apply(mod).rename(mod_name)).reset_index( drop=True)
+
+        new_data = pd.concat([new_data,t_mean,t_median,t_max,t_min,t_std],axis = 1)
+
+    return new_data	
+
+
+
+	
+#不理会原始的group，直接按照每三十个数据一组分类
+def new_group(train_data):
+    new_group_index = 1
+    new_new_group = []
+    i = 0
+    while True:
+        for j in range(i,i + 30):
+            new_new_group.append(new_group_index)
+        new_group_index += 1
+        i = i + 30
+
+        if i + 30 > len(train_data)-1:
+            for j in range(i,len(train_data)):
+                new_new_group.append(new_group_index)
+            break
+    train_data['group'] = new_new_group
+    return train_data
+	
+	
+#/*******************************************************/
+#//通用函数
+#
+#//
+	
+#给原始数据添加label
+def add_label(train_data,d_n,d_f):
+    train_data_new_time = [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in train_data['time'] ]
+
+    #转换normal和failure的时间格式
+    d_n_start_time = [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in d_n['startTime'] ]
+    d_n_end_time= [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in d_n['endTime'] ]
+    d_f_start_time = [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in d_f['startTime'] ]
+    d_f_end_time = [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in d_f['endTime'] ]
+
+    label_list_2=[]
+
+    for i in tqdm(range(0,len(train_data))):
+        is_ok = 0
+        for j in range(0,len(d_n_start_time)):	
+            if ((train_data_new_time[i] >= d_n_start_time[j]) &
+            (train_data_new_time[i] <= d_n_end_time[j])):
+                label_list_2.append(0)
+                is_ok = 1
+                break
+        if is_ok ==0:
+            for j in range(0,len(d_f_start_time)):
+                if ((train_data_new_time[i] >= d_f_start_time[j]) &
+                (train_data_new_time[i] <= d_f_end_time[j])):
+                    label_list_2.append(1)
+                    is_ok = 1
+                    break
+
+        if is_ok==0:
+            label_list_2.append(2)
+
+    label_s=pd.Series(label_list_2)
+    train_data['label'] = label_s
+    return train_data		
+	
+	
+	
+#归一化	
+def normalization(train_data):
+
+    #train_data_normal = train_data.apply(lambda x: (x - np.min(x)) / (np.max(x) - np.min(x)))
+
+    train_data_normal = train_data.apply(lambda x: (x - np.mean(x)) / (np.std(x)))
+    return train_data_normal		
+	
+	
+#构造特征
+def add_columns(train_data):
+    #计算不同列之间的差值	
+    #def cal_diff(train_data):
+    #环境温度减
+    train_data['e_p2_ng_t'] = train_data['environment_tmp'] - train_data['pitch2_ng5_tmp']    
+    train_data['e_p2_m_t'] = train_data['environment_tmp'] - train_data['pitch2_moto_tmp']
+
+    #机舱温度减
+    train_data['i_p1_ng_t'] = train_data['int_tmp'] - train_data['pitch1_ng5_tmp']
+    train_data['i_p2_m_t'] = train_data['int_tmp'] - train_data['pitch2_moto_tmp']
+
+    #机舱温度和环境温度的差
+    train_data['e_i_t'] = train_data['environment_tmp'] - train_data['int_tmp']
+
+
+
+    #计算偏航系统的特征值
+    #def cal_yaw(train_data):
+    # 计算风速速度的次方
+    train_data['wind_speed_2'] = [(lambda x : math.pow(x,2))(x) for x in train_data['wind_speed']]
+    train_data['wind_direction_mean_cos'] = [(lambda x : math.cos(x*(math.pi)/180))(x) for x in train_data['wind_direction_mean']]
+    train_data['wind_direction_mean_cos_2'] = [(lambda x : math.pow(x,2))(x) for x in train_data['wind_direction_mean_cos']]
+    # 计算偏航位置特征
+    train_data['yaw_ch1'] = [(lambda x : math.exp(-abs(x)))(x) for x in train_data['yaw_position']]
+    train_data['yaw_ch2'] = [(lambda x : math.exp(-abs(x)))(x) for x in train_data['yaw_speed']]
+    #计算空气的密度
+    train_data['air_density_20'] = train_data['power']/(train_data['wind_speed_2']*train_data['wind_direction_mean_cos_2']*train_data['yaw_ch2'])
+
+    train_data.drop(['yaw_ch2','wind_direction_mean_cos_2','wind_direction_mean_cos'],axis=1, inplace=True)
+    return train_data		
+	
+
+#离散化，某些数据集中的某些特征无法使用等频离散，所以要多次运行，找出所有数据集中都可以等频离散的特征	
+def dis(train,columns_name_list):
+# train = data_stat_all
+# columns_name = pd.read_csv('columns_name_dis_dengpin_new_2.csv')
+# columns_name_list = columns_name['columns_name']
+    k=50
+    w = [1.0*i/k for i in range(k+1)]  
+    w_50 = train.describe(percentiles = w)[4:4+k+1] #使用describe函数自动计算分位数  
+
+    w_50.iloc[0,:] = -100000000000000
+    w_50.iloc[-1,:] = 100000000000000
+
+#     drop_number = []
+    train_dis = pd.DataFrame(train['label'],columns=['label'])
+    for i in range(1,len(columns_name_list)):
+        try:
+    #             d2 = pd.cut(train.iloc[:,i], w_50.iloc[:,i], labels = range(k)) 
+    #             columns_name = train.columns[i]
+    #             d2_dd = pd.DataFrame(list(d2),columns=[columns_name])
+            d2 = pd.cut(train[columns_name_list[i]], w_50[columns_name_list[i]], labels = range(k)) 
+            d2_dd = pd.DataFrame(list(d2),columns=[columns_name_list[i]])
+            train_dis = pd.concat([train_dis,d2_dd],axis=1)
+
+        except:
+    #             d2 = pd.cut(train.iloc[:,i], k, labels = range(k)) 
+    #             columns_name = train.columns[i]
+    #             d2_dd = pd.DataFrame(list(d2),columns=[columns_name])
+    #             train_dis = pd.concat([train_dis,d2_dd],axis=1)
+            print("error" + " " + columns_name_list[i] + " " + str(i))
+#             drop_number.append(i)
+
+#     for i in range(len(drop_number)):
+#         columns_name_list = columns_name_list.drop(drop_number[i])
+#     new_columns_name_d=pd.DataFrame(columns_name_list,columns=['columns_name'])
+#     new_columns_name_d.to_csv('columns_name_dis_dengpin_new_3.csv',index = False)
+    return train_dis	
+	
+
+#处理原始label，因为有些label = 2，这里尝试把label=2的变成1或者0。但是最后验证的结果是把2删掉最好。	
+def deal_label(train_data):
+    old_group = train_data['group']
+    label = train_data['label']
+    label_list = list(label)
+    group_start = 0
+
+    #首先处理一个group 中有一部分是2的
+    for i in tqdm(range(len(train_data)-1)):
+        if old_group[i] != old_group[i+1]:
+            temp_list = label_list[group_start:i]
+            temp = np.mean(temp_list)
+            if (temp != 0) & (temp != 1) & (temp != 2):
+                if (label_list[group_start] == 1) | (label_list[i] == 1):
+                    for k in range(group_start,i+1):
+                        label_list[k] = 1
+                elif (label_list[group_start] == 0) | (label_list[i] == 0):
+                    for k in range(group_start,i+1):
+                        label_list[k] = 0
+
+            group_start = i+1
+
+    #然后处理全部都是2的group
+    for i in tqdm(range(1,len(train_data)-1)):		
+        if (label_list[i] == 2):
+            for k in range(1,10000):
+                if (label_list[i + k] != 2) & (i + k < len(train_data)-1):
+                    #如果两端都是0，那么中间也是0
+#                     print("i=" + str(i) + ", end = " + str(i+k))
+#                     print(str(label_list[i - 1]) + "," + str(label_list[i + k]))
+                    if (label_list[i + k] == 0) & (label_list[i - 1] == 0):
+
+                        for j in range(i,i+k):
+                            label_list[j] = 0
+                    else:
+                        for j in range(i,i+k):
+                            if j < (i+k)/2:
+                                label_list[j] = 0
+                            else:
+                                label_list[j] = 1
+                    break
+    train_data['new_label'] = label_list
+    return train_data	
+	
+	
+	
+#处理原始label，因为有些label = 2，这里尝试把label=2的变成1或者0。但是最后验证的结果是把2删掉最好。	
+def deal_label_2(train_data):
+    old_group = train_data['group']
+    label = train_data['label']
+    label_list = list(label)
+    group_start = 0
+
+    #处理一个group 中有一部分是2的，全部变成2，最后全部删除
+    for i in tqdm(range(len(train_data)-1)):
+        if old_group[i] != old_group[i+1]:
+            temp_list = label_list[group_start:i]
+            temp = np.mean(temp_list)
+            if (temp != 0) & (temp != 1) & (temp != 2):
+                for k in range(group_start,i+1):
+                    label_list[k] = 2
+            group_start = i+1
+    train_data['new_label'] = label_list
+    return train_data		
+	
+	
+	
