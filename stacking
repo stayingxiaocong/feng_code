@@ -1,0 +1,246 @@
+import numpy as np
+import pandas as pd
+import time
+import math
+from tqdm import *
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import *
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+
+
+
+#读取所有数据集
+data_all = pd.read_csv('data_stat_all_dis.csv')
+
+#按照0和1来拆分
+data_all_0 = data_all.loc[data_all['label']==0]
+data_all_0 = data_all_0.reset_index(drop=True)
+
+data_0_a = pd.DataFrame(columns=[data_all_0.columns])
+data_0_b = pd.DataFrame(columns=[data_all_0.columns])
+data_0_c = pd.DataFrame(columns=[data_all_0.columns])
+data_0_d = pd.DataFrame(columns=[data_all_0.columns])
+data_0_e = pd.DataFrame(columns=[data_all_0.columns])
+
+for i in range(len(data_all_0)):
+    if i < len(data_all_0)/5:
+        data_0_a = data_0_a.append(data_all_0.iloc[i,:])
+    elif (i >= len(data_all_0)/5) & (i < len(data_all_0)/5*2):
+        data_0_b = data_0_b.append(data_all_0.iloc[i,:])
+    elif (i >= len(data_all_0)/5*2) & (i < len(data_all_0)/5*3):
+        data_0_c = data_0_c.append(data_all_0.iloc[i,:])
+    elif (i >= len(data_all_0)/5*3) & (i < len(data_all_0)/5*4):
+        data_0_d = data_0_d.append(data_all_0.iloc[i,:])
+    else:
+        data_0_e = data_0_e.append(data_all_0.iloc[i,:])
+
+        
+        
+#按照0和1来拆分
+data_all_1 = data_all.loc[data_all['label']==1]
+data_all_1 = data_all_1.reset_index(drop=True)
+
+data_1_a = pd.DataFrame(columns=[data_all_1.columns])
+data_1_b = pd.DataFrame(columns=[data_all_1.columns])
+data_1_c = pd.DataFrame(columns=[data_all_1.columns])
+data_1_d = pd.DataFrame(columns=[data_all_1.columns])
+data_1_e = pd.DataFrame(columns=[data_all_1.columns])
+
+for i in range(len(data_all_1)):
+    if i < len(data_all_1)/5:
+        data_1_a = data_1_a.append(data_all_1.iloc[i,:])
+    elif (i >= len(data_all_1)/5) & (i < len(data_all_1)/5*2):
+        data_1_b = data_1_b.append(data_all_1.iloc[i,:])
+    elif (i >= len(data_all_1)/5*2) & (i < len(data_all_1)/5*3):
+        data_1_c = data_1_c.append(data_all_1.iloc[i,:])
+    elif (i >= len(data_all_1)/5*3) & (i < len(data_all_1)/5*4):
+        data_1_d = data_1_d.append(data_all_1.iloc[i,:])
+    else:
+        data_1_e = data_1_e.append(data_all_1.iloc[i,:])
+        
+        
+#五个数据集分别合并
+data_a = pd.concat([data_0_a,data_1_a],axis = 0)
+data_b = pd.concat([data_0_b,data_1_b],axis = 0)
+data_c = pd.concat([data_0_c,data_1_c],axis = 0)
+data_d = pd.concat([data_0_d,data_1_d],axis = 0)
+data_e = pd.concat([data_0_e,data_1_e],axis = 0)
+
+fianl_all = pd.concat([data_a,data_b,data_c,data_d,data_e],axis = 0)
+final_all_label = fianl_all['label']  #最终的训练集的label
+
+#三个模型，LR,SVM,LDA
+
+
+#用bcde训练，a做测试
+print("a")
+train = pd.concat([data_b,data_c,data_d,data_e],axis = 0)
+test = data_a
+train = train.reset_index(drop=True)
+test = test.reset_index(drop=True)
+pre_1_a = run_model_1(train,test) #LR
+pre_2_a = run_model_2(train,test) #SVM
+pre_3_a = run_model_3(train,test) #LDA
+
+#用acde训练，b做测试
+print("b")
+train = pd.concat([data_a,data_c,data_d,data_e],axis = 0)
+test = data_b
+train = train.reset_index(drop=True)
+test = test.reset_index(drop=True)
+pre_1_b = run_model_1(train,test) #LR
+pre_2_b = run_model_2(train,test) #SVM
+pre_3_b = run_model_3(train,test) #LDA
+
+#用abde训练，c做测试
+print("c")
+train = pd.concat([data_a,data_b,data_d,data_e],axis = 0)
+test = data_c
+train = train.reset_index(drop=True)
+test = test.reset_index(drop=True)
+pre_1_c = run_model_1(train,test) #LR
+pre_2_c = run_model_2(train,test) #SVM
+pre_3_c = run_model_3(train,test) #LDA
+
+
+#用abce训练，d做测试
+print("d")
+train = pd.concat([data_a,data_b,data_c,data_e],axis = 0)
+test = data_d
+train = train.reset_index(drop=True)
+test = test.reset_index(drop=True)
+pre_1_d = run_model_1(train,test) #LR
+pre_2_d = run_model_2(train,test) #SVM
+pre_3_d = run_model_3(train,test) #LDA
+
+
+#用abcd训练，e做测试
+print("e")
+train = pd.concat([data_a,data_b,data_c,data_d],axis = 0)
+test = data_e
+train = train.reset_index(drop=True)
+test = test.reset_index(drop=True)
+pre_1_e = run_model_1(train,test) #LR
+pre_2_e = run_model_2(train,test) #SVM
+pre_3_e = run_model_3(train,test) #LDA
+
+
+#合并预测的label
+pre_1_a = pd.DataFrame(pre_1_a,columns=['label_1'])
+pre_1_b = pd.DataFrame(pre_1_b,columns=['label_1'])
+pre_1_c = pd.DataFrame(pre_1_c,columns=['label_1'])
+pre_1_d = pd.DataFrame(pre_1_d,columns=['label_1'])
+pre_1_e = pd.DataFrame(pre_1_e,columns=['label_1'])
+
+pre_2_a = pd.DataFrame(pre_2_a,columns=['label_2'])
+pre_2_b = pd.DataFrame(pre_2_b,columns=['label_2'])
+pre_2_c = pd.DataFrame(pre_2_c,columns=['label_2'])
+pre_2_d = pd.DataFrame(pre_2_d,columns=['label_2'])
+pre_2_e = pd.DataFrame(pre_2_e,columns=['label_2'])
+
+pre_3_a = pd.DataFrame(pre_3_a,columns=['label_3'])
+pre_3_b = pd.DataFrame(pre_3_b,columns=['label_3'])
+pre_3_c = pd.DataFrame(pre_3_c,columns=['label_3'])
+pre_3_d = pd.DataFrame(pre_3_d,columns=['label_3'])
+pre_3_e = pd.DataFrame(pre_3_e,columns=['label_3'])
+
+
+pre_1 = pd.concat([pre_1_a,pre_1_b,pre_1_c,pre_1_d,pre_1_e],axis=0)
+pre_2 = pd.concat([pre_2_a,pre_2_b,pre_2_c,pre_2_d,pre_2_e],axis=0)
+pre_3 = pd.concat([pre_3_a,pre_3_b,pre_3_c,pre_3_d,pre_3_e],axis=0)
+
+
+#预测08数据集
+true_test_data = pd.read_csv('test_08_dis.csv')
+time = true_test_data['time']
+time = time.astype(int)
+true_test_data = true_test_data.drop(['time'],axis=1,inplace = False)
+x_all = fianl_all.drop(['label'],axis=1,inplace = False)
+y_list = list(final_all_label)
+
+#LR
+columns_name = pd.read_csv('columns_name_dis_sort.csv')
+columns_name_list = columns_name['columns_name']
+featrure_number = 24
+x_all_1 = x_all[columns_name_list[0:featrure_number]]
+
+true_test_data_1 = true_test_data[columns_name_list[0:featrure_number]] 
+clff_1 = LogisticRegression(penalty = 'l2',
+                    class_weight = {1:30,0:1},
+                    C = 0.0022,
+                    solver = 'liblinear'
+                    ).fit(x_all_1,y_list)
+
+pre_label_1 = clff_1.predict(true_test_data_1)
+
+#SVM
+columns_name = pd.read_csv('columns_name_dis_sort.csv')
+columns_name_list = columns_name['columns_name']
+featrure_number = 36
+x_all_2 = x_all[columns_name_list[0:featrure_number]]
+
+true_test_data_2 = true_test_data[columns_name_list[0:featrure_number]] 
+clff_2 = LinearSVC(class_weight = "balanced",
+               dual =False,
+                penalty = 'l1',
+                C = 0.002
+               ).fit(x_all_2,y_list)
+
+pre_label_2 = clff_2.predict(true_test_data_2)
+
+#LDA
+columns_name = pd.read_csv('columns_name_dis_sort.csv')
+columns_name_list = columns_name['columns_name']
+featrure_number = 25
+x_all_3 = x_all[columns_name_list[0:featrure_number]]
+
+true_test_data_3 = true_test_data[columns_name_list[0:featrure_number]] 
+#这里要手动采样
+x_LDA = x_all_3
+y_list_len = len(y_list)
+for j in range(y_list_len):
+    if y_list[j] == 1:
+        temp = x_LDA.iloc[j,:]
+        for i in range(20):
+            x_LDA = x_LDA.append(temp)
+            y_list.append(1)
+clff_3 = LinearDiscriminantAnalysis().fit(x_LDA,y_list)
+
+pre_label_3 = clff_3.predict(true_test_data_3)
+
+#二次训练！！
+pre_train = pd.concat([pre_1,pre_2,pre_3],axis = 1)
+label_train = final_all_label
+
+pre_label_1 = pd.DataFrame(pre_label_1,columns=['pre_1'])
+pre_label_2 = pd.DataFrame(pre_label_2,columns=['pre_2'])
+pre_label_3 = pd.DataFrame(pre_label_3,columns=['pre_3'])
+test_pre = pd.concat([pre_label_1,pre_label_2,pre_label_3],axis = 1)
+
+
+#二次训练中交叉验证调参
+from sklearn.cross_validation import StratifiedKFold
+from sklearn import cross_validation
+X_train, X_test, y_train, y_test = cross_validation.train_test_split( pre_train, label_train, stratify = label_train, test_size=0.2, random_state=1)
+X_train = X_train.reset_index(drop=True)
+y_train = y_train.reset_index(drop=True)
+X_test = X_test.reset_index(drop=True)
+y_test = y_test.reset_index(drop=True)
+
+y_train_label_list=list(y_train)
+clff_final = LinearSVC(class_weight = "balanced",
+               dual =False,
+                penalty = 'l1',
+                C = 0.002
+               ).fit(X_train,y_train_label_list)
+s,n,TP,cross_label,n_f = cal_score_svm(clff,X_test,y_test)
+print("cross score = " + str(s) +", Negtive =" + str(n) + 
+          "(" + str(TP) + ")" + " " + str(n_f) + "\n")
+
+clff_final = LinearSVC(class_weight = "balanced",
+               dual =False,
+                penalty = 'l1',
+                C = 0.002
+               ).fit(pre_train,list(label_train))
+pre_label_final = clff_final.predict(test_pre)
+
