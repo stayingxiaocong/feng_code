@@ -1,0 +1,265 @@
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.externals import joblib
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
+import xgboost as xgb
+from xgboost.sklearn import XGBClassifier
+from sklearn.cross_validation import StratifiedKFold
+from sklearn import cross_validation
+import numpy as np
+import pandas as pd
+import time    
+
+
+def mian():
+	featrure_number = 60
+
+	train_data = pd.read_csv('new_train_15_80.csv')
+
+	train_data_sort = train_data.sort_values('group')
+	train_data_sort = train_data_sort.reset_index(drop=True)
+
+	y = train_data_sort['label']
+	train_group = train_data_sort['group']
+	x = train_data_sort.drop(['label','group'],axis=1,inplace = False)
+	#取部分特征
+	x = x[x.columns[0:featrure_number]]
+
+	#按照比例划分数据集
+	X_train, X_test, y_train, y_test = cross_validation.train_test_split( x, y, stratify=y, test_size=0.2, random_state=1)
+	X_train = X_train.reset_index(drop=True)
+	y_train = y_train.reset_index(drop=True)
+	X_test = X_test.reset_index(drop=True)
+	y_test = y_test.reset_index(drop=True)
+
+	#预测集
+	test_data = pd.read_csv('new_test_21_80.csv')
+	#test_data = pd.read_csv('new_train_15_80.csv')
+	test_data_sort = test_data.sort_values('group')
+	test_data_sort = test_data_sort.reset_index(drop=True)
+
+
+	y_21 = test_data_sort['label']
+	temp_group = test_data_sort['group']
+	test_data_sort = test_data_sort.drop(['label','group'],axis=1,inplace = False)
+	test_data = test_data_sort[x.columns[0:featrure_number]]
+	
+	
+	#真正的预测集
+	true_test_data = pd.read_csv('new_test_80.csv')
+	temp_time = true_test_data['time']
+	true_temp_time = temp_time.astype(int)
+	true_temp_group = true_test_data['group']
+	true_test_data = true_test_data.drop(['time','group'],axis=1,inplace = False)
+	true_test_data = true_test_data[x.columns[0:featrure_number]]
+	
+	
+	find_feature(X_train,y_train)
+	
+	#run这个函数需要多次运行，用于调整参数。
+	#或者使用网格搜索等方法调参
+	run(X_train,y_train,X_test,y_test,test_data,0.5,"max_deepth",2)
+	
+#根据RF模型求出各个特征的重要性
+def RF_model_importance(train_data,train_label):
+    clf = RandomForestClassifier().fit(train_data,train_label)
+    return clf
+#feature importance
+def choose_feature(clf,name_list):
+    importance_list = clf.feature_importances_
+    impor_dict = {}
+    for i in range(len(importance_list)):
+        impor_dict[i] = importance_list[i]
+
+    impor_dict_list = sorted(impor_dict.items(), key=lambda d: d[1], reverse=True)
+
+    for i in range(len(impor_dict_list)):
+        print ( str(name_list[impor_dict_list[i][0]]) + " : " + str(impor_dict_list[i][1]))
+    return impor_dict_list
+    
+#运行RF模型，按feature_importance排序，然后计算排序后的特征的相关性，删除相关性大于0.9的排名靠后的特征
+def find_feature(X_train,y_train):
+	clff = RF_model_importance(X_train,y_train)
+	name_list = X_train.columns.values
+	importan_list = choose_feature(clff,name_list)
+	new_columns_name = []
+	#一共只有前40个特征的重要性不为0，先把这些特征选出来，然后再减少。
+	#后面还可以尝试一下RF的特征重要性
+	for i in range(0,len(name_list)):
+		new_columns_name.append(name_list[importan_list[i][0]])
+	new_columns_name_d=pd.DataFrame(new_columns_name,columns=['columns_name'])
+	new_columns_name_d.to_csv('columns_name_dis_sort.csv',index = False)	
+		
+	columns_name = pd.read_csv('columns_name_dis.csv')
+	columns_name_list = columns_name['columns_name']
+	corr_list=[]
+	for j in range(0,61):
+		corr_list.append(train_data[columns_name_list[0]].corr(train_data[columns_name_list[j]]))
+	corr_list_d = pd.DataFrame(corr_list,columns=['corr0'])    
+		
+	for i in range(1,60):
+		temp_corr_list=[]
+		columns_name = 'corr'+str(i)
+		for j in range(0,i+1):
+			temp_corr_list.append(0)
+		for j in range(i+1,61):
+			temp_corr_list.append(train_data[columns_name_list[i]].corr(train_data[columns_name_list[j]]))
+		temp_corr_list_d = pd.DataFrame(temp_corr_list,columns=[columns_name])   
+		corr_list_d = pd.concat([corr_list_d,temp_corr_list_d],axis=1)  
+
+	should_del = [0]*len(corr_list_d)
+	for i in range(len(corr_list_d)-1,-1,-1):
+		for j in range(len(list(corr_list_d))):
+			if corr_list_d.iloc[i,j] > 0.9:
+				should_del[i] = 1
+	should_del[0] = 0
+
+	should_del_d = pd.DataFrame(should_del,columns=['should_del'])
+	can_be_used = should_del_d[should_del_d['should_del'].isin([0])]
+	can_be_used = can_be_used.reset_index()
+	use_list = can_be_used['index']
+	final_columns = columns_name_list[use_list]
+	final_columns = final_columns.reset_index(drop=True)	
+	
+#运行各种模型	
+def run(X_train,y_train,X_test,y_test,test_data,threshold,name,parameter):
+    #threshold = 0.5
+
+    #clff = RF_model(X_train,y_train,parameter)
+    clff = knn_model(X_train,y_train,parameter)
+    #clff = LR_model_15(X_train,y_train)
+    #clff = LR_model_21(X_train,y_train,parameter)
+    #clff = xgb_model(X_train,y_train,parameter)
+    #clff = GBDT_model(X_train,y_train,parameter)
+    s,n,TP,cross_label = cal_score(clff,X_test,y_test,threshold)
+#     print("parameter = " + "\n" + str(parameter) + "cross score = " + str(s) + ", Negtive =" + str(n) + 
+#           "(" + str(TP) + ")")
+
+    #预测结果并输出
+    #pre_label = predict(clff,test_data,0.5)
+
+    pre_label = [0]*len(test_data)
+    pre_label_pro = clff.predict_proba(test_data)
+    for i in range(len(pre_label_pro)):
+        if pre_label_pro[i][1] > threshold:
+            pre_label[i] = 1 
+
+
+    #按照group信息做调整，保证每一个group都是同一个label
+    group_start = 0
+    is_one = 0
+    for i in range(len(pre_label)-1):
+        if temp_group[i] != temp_group[i+1]:
+            is_one = 0
+            for j in range(0,i-group_start+1):
+                if pre_label[i-j] == 1:
+                    is_one += 1
+            if is_one >= 2:
+                for j in range(0,i-group_start+1):
+                    pre_label[i-j] = 1
+            if is_one == 1:
+                for j in range(0,i-group_start+1):
+                    pre_label[i-j] = 0
+            group_start = i + 1
+    n_f = 0
+    n_n = 0
+    FP = 0
+    FN = 0
+    TP = 0
+    n_label = 0
+    for i in range(0,len(y_21)):
+        if pre_label[i] == 1:
+            n_label = n_label+1
+        if y_21[i] == 1:
+            n_f = n_f + 1
+            if pre_label[i] == 0:
+                FP = FP + 1
+            else:
+                TP = TP + 1
+        else: #y_test_label[i] == 0
+            n_n = n_n + 1
+            if pre_label[i] == 1:
+                FN = FN + 1
+    score = (1-0.5*(FN/n_n)-0.5*(FP/n_f))*100
+	
+    print(name +  str(parameter) + "\n" +"cross score = " + str(s) +", predict score = " + str(score) + ", Negtive =" + str(n_label) + 
+              "(" + str(TP) + ")" + "\n")
+			  
+	return none
+
+	
+	
+#GBDT_model
+def GBDT_model(train_data,train_label,parameter):
+    weight_list=[]
+    for j in range(len(train_label)):
+        if train_label[j] == 0:
+            weight_list.append(1)
+        if train_label[j] == 1:
+            weight_list.append(8)
+    clf = GradientBoostingClassifier(loss='deviance', 
+                                 n_estimators = 20,
+                      learning_rate = 0.25,
+                      max_depth = parameter, random_state=1,
+                      min_samples_split = 10,  
+                      min_samples_leaf = 10,    
+                      subsample=1.0,
+                      #max_features='sqrt'
+                    ).fit(train_data,train_label,weight_list)
+
+    return clf	
+	
+	
+#RF_model
+def RF_model(train_data,train_label,parameter):
+    weight_list=[]
+    for j in range(len(train_label)):
+        if train_label[j] == 0:
+            weight_list.append(1)
+        if train_label[j] == 1:
+            weight_list.append(26)
+    clf = RandomForestClassifier(
+                            n_estimators = parameter,#13
+                            #max_features='sqrt', 
+                            max_depth = 3 ,
+                            min_samples_leaf = 22,#25
+                            min_samples_split = 8,#8
+                            criterion='entropy',
+                            ).fit(train_data,train_label,weight_list)
+    return clf	
+	
+	
+	
+#xgb模型
+def xgb_model(train_data,y_train_label,paramter):   
+    clf = XGBClassifier(
+    silent=0 ,
+    learning_rate= 0.5, # 如同学习率
+    min_child_weight= 0.1, 
+    max_depth = 5, # 构建树的深度，越大越容易过拟合
+    gamma = 0.1,  
+    subsample=1, # 随机采样训练样本 训练实例的子采样比
+    max_delta_step=0,#最大增量步长，我们允许每个树的权重估计。
+    colsample_bytree=1, # 生成树时进行的列采样 
+    reg_lambda = 1.1,  # 控制模型复杂度的权重值的L2正则化项参数
+    reg_alpha = 1.5, # L1 正则项参数
+    scale_pos_weight = 14, 
+    n_estimators = paramter, #树的个数
+    seed=0 #随机种子
+    )
+    clf.fit(train_data,y_train_label)
+    return clf	
+	
+
+#LR_model
+def LR_model(train_data,y_train_label):
+    clf = LogisticRegression(penalty = 'l2',
+                            class_weight = {1:20,0:1},
+                            C = 0.2,
+                            solver = 'liblinear'
+                            ).fit(train_data, y_train_label)
+    return clf	
+	
+	
