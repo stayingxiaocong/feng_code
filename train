@@ -1,0 +1,97 @@
+
+# coding: utf-8
+
+# In[49]:
+
+# 计算group前后10次平均值的差值,并实现15和21数据集的时间跳变打标
+def D_value(data):
+    c_list = []   # 从group2开始记录差值
+    data_new_time = [(lambda x : time.mktime(time.strptime(x,"%Y-%m-%d %H:%M:%S")))(x) for x in data['time'] ]
+    t_index = data_new_time
+    g_index = data['group']
+    g_len = len(g_index)       #行数
+    c_len = len(data.columns)  #列数
+    group_num = 0              # group数量
+    
+    for i in range(1,g_len):
+        if ( g_index[i] != g_index[i-1] ):  # group跳变
+            
+            group_num = group_num + 1       # 记录group数量
+            c_list.append(g_index[i])       # 记录当前的group下标
+            
+            if (t_index[i]-t_index[i-1] > 10): # 时间戳有断层
+                c_list.append(1)
+            else:
+                c_list.append(0)
+                
+            for j in range(1,c_len-1):       # 遍历列名,除了第一列时间和最后一列group
+                temp_index = data.columns[j]
+                temp_col = data[temp_index]
+                
+                seg_0 = temp_col[i:i+9]    # 当前组前10个数
+                seg_0 = seg_0.reset_index(drop=True)
+                seg_1 = temp_col[i-10:i-1] #上一组后10个数
+                seg_1 = seg_1.reset_index(drop=True)
+                seg_2 = temp_col[i-20:i-11] #上一组后20个数
+                seg_2 = seg_2.reset_index(drop=True)
+                
+                temp_c = seg_0.mean() + seg_2.mean() - 2*seg_1.mean()  # group前后10次平均值的差值
+                c_list.append(temp_c)
+    return c_list,group_num 
+
+
+
+# In[50]:
+
+# 将list转换成dataFrame
+def list_to_df (c_list,group_num,data):
+    new_array = np.array(c_list)
+    temp_array = np.reshape(new_array,(group_num,20))
+    
+    # 命名
+    temp_col = ['group','label']
+    data_col = data.columns
+    for i in range(1,len(data_col)-1):
+        temp_col.append(data_col[i])
+        
+    df = pd.DataFrame(temp_array,columns=temp_col)
+    return df 
+
+
+# In[52]:
+
+# 去除一些不必要的特征列，与目标变量相关系数较低的变量
+def drop_character(data):
+    data.drop(['acc_x','acc_y','pitch1_ng5_DC','pitch2_ng5_DC','pitch3_ng5_DC',
+               'pitch1_speed','pitch2_speed','pitch3_speed'],axis=1, inplace=True)
+    return data
+
+
+# In[64]:
+
+# 主函数
+def main():
+    import numpy as np
+    import pandas as pd
+    import time
+    # 读取数据
+    data_1 = pd.read_csv('D:\\Files\\competion\\raw_data\\21\\21_data.csv')
+    # 去除一些不必要的特征列
+    data_2 = drop_character(data_1)
+    # 打标
+    c_list,group_num = D_value(data_2)
+    # 得到 训练集合测试集 group + label + 18维特征
+    data_3 = list_to_df (c_list,group_num,data_2)
+    # 保存训练特征集
+    data_3.to_csv('21_seg10train.csv',index = False)
+
+
+# In[65]:
+
+main()
+
+
+# In[ ]:
+
+
+
